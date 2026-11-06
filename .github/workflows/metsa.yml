@@ -26,6 +26,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    outputs:
+      updated: ${{ steps.meta.outputs.updated }}
     steps:
       - name: Hae ohjelmakoodi (Talokartta)
         uses: actions/checkout@v5
@@ -73,7 +75,10 @@ jobs:
           key: metsa-${{ steps.stamp.outputs.v }}
 
       - name: Koko
-        run: ls -la dist dist/data
+        id: meta
+        run: |
+          ls -la dist dist/data
+          echo "updated=$(jq -r .updated dist/data/meta.json)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-pages-artifact@v5
         with:
@@ -91,9 +96,33 @@ jobs:
         with:
           timeout: 600000
 
+  # Julkaistun sivun tarkistus oikealla selaimella (koodi: Talokartan check/metsa_tarkistus.mjs).
+  check:
+    needs: [build, deploy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: vv-tec/Talokartta
+          path: koodi
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Asenna selain
+        working-directory: koodi/check
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Tarkista sivu
+        working-directory: koodi/check
+        env:
+          EXPECT_UPDATED: ${{ needs.build.outputs.updated }}
+        run: node metsa_tarkistus.mjs
+
   # Ilmoitus omistajalle: epäonnistunut ajo avaa GitHub-ilmoituksen (issue → sähköposti); onnistunut sulkee sen.
   notify:
-    needs: [build, deploy]
+    needs: [build, deploy, check]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -104,7 +133,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      FAILED: ${{ needs.build.result == 'failure' || needs.deploy.result == 'failure' }}
+      FAILED: ${{ needs.build.result == 'failure' || needs.deploy.result == 'failure' || needs.check.result == 'failure' }}
     steps:
       - name: Avaa tai sulje ilmoitus
         run: |
