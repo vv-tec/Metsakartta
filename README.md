@@ -8,6 +8,8 @@ asetukset ja ohjeet ovat Talokartta-repositoriossa:
 - Kehittäjän muistio: Talokartan `CLAUDE.md` (tiekartan kohta 6) · omistajan ohje: Talokartan `KAYTTOOHJE.md`
 - Julkaisu: https://vv-tec.github.io/Metsakartta/ (esikatselu) ja `data/` (karttatiedostot, joita Talokartta käyttää)
 - Ajo: Actions → **Päivitä metsätilat ja julkaise** (joka aamu noin klo 6.47 ja käsin). Tarvitsee salaisuuden `MML_API_KEY`.
+  Julkaisun jälkeen sivu tarkistetaan selaimella (Talokartan `check/metsa_tarkistus.mjs`).
+- Jos julkaisu jumittuu ("Timeout reached"), saman version uudelleenajo ei auta: tarvitaan uusi commit tai uusi ajo myöhemmin.
 
 Lähteet: Suomen metsäkeskus (metsävaratieto), Maanmittauslaitos (kiinteistörekisterikartta), Luonnonvarakeskus
 (kantohinnat), SYKE Ryhti (rakennukset) – kaikki CC BY 4.0. Puuston arvo on laskennallinen, ei kauppahinta.
