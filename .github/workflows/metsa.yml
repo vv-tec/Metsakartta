@@ -1,0 +1,139 @@
+name: Päivitä metsätilat ja julkaise
+
+# Metsakartta: metsätilojen yöajo. Ohjelmakoodi on Talokartta-repositoriossa (pipeline/metsa.py, metsa_web/);
+# tämä repositorio ajaa sen ja julkaisee karttatiedostot osoitteeseen https://vv-tec.github.io/Metsakartta/.
+# Asetukset (maakunnat, päivitysväli): Talokartan pipeline/config.py, kohta METSAKARTTA.
+on:
+  schedule:
+    - cron: "47 4 * * *"   # joka aamu noin klo 6.47 Suomen aikaa (Talokartan yöajon jälkeen, ei samaan aikaan)
+  workflow_dispatch:
+    inputs:
+      ohita_tarkistukset:
+        description: "Julkaise, vaikka turvatarkistus huomauttaisi (vain kun pudotus on todellinen)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Hae ohjelmakoodi (Talokartta)
+        uses: actions/checkout@v5
+        with:
+          repository: vv-tec/Talokartta
+          path: koodi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Asenna työkalut
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q tippecanoe
+          pip install -r koodi/pipeline/requirements.txt -r koodi/pipeline/requirements-shore.txt   # Shapely
+
+      # Kuntien tulokset säilytetään ajojen välillä; kunta haetaan uudelleen kuukauden välein (rekisterien kuormitus pieni).
+      - name: Palauta välimuisti
+        uses: actions/cache/restore@v5
+        with:
+          path: cache
+          key: metsa-none
+          restore-keys: metsa-
+
+      - name: Hae tiedot ja tee karttatiedostot
+        env:
+          MML_API_KEY: ${{ secrets.MML_API_KEY }}
+          SKIP_CHECKS: ${{ inputs.ohita_tarkistukset }}
+        timeout-minutes: 210   # ohjelma lopettaa kuntahaut itse 150 min kohdalla (config.METSA_TIME_BUDGET_MIN)
+        working-directory: koodi
+        run: python -m pipeline.metsa --out ../dist --cache ../cache --work ../work
+
+      - name: Välimuistin tunniste
+        id: stamp
+        if: always()
+        run: echo "v=$(cat cache/metsa.stamp 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Tallenna välimuisti
+        if: always() && steps.stamp.outputs.v != 'none'
+        uses: actions/cache/save@v5
+        continue-on-error: true   # sama versio on jo tallessa
+        with:
+          path: cache
+          key: metsa-${{ steps.stamp.outputs.v }}
+
+      - name: Koko
+        run: ls -la dist dist/data
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+        with:
+          timeout: 600000
+
+  # Ilmoitus omistajalle: epäonnistunut ajo avaa GitHub-ilmoituksen (issue → sähköposti); onnistunut sulkee sen.
+  notify:
+    needs: [build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      actions: read
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      FAILED: ${{ needs.build.result == 'failure' || needs.deploy.result == 'failure' }}
+    steps:
+      - name: Avaa tai sulje ilmoitus
+        run: |
+          LABEL="ajo-epäonnistui"
+          gh label create "$LABEL" --color d73a4a --description "Metsakartan päivitysajo epäonnistui" 2>/dev/null || true
+          OPEN=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+          WHEN=$(TZ=Europe/Helsinki date '+%-d.%-m.%Y klo %H.%M')
+          if [ "$FAILED" = "true" ]; then
+            JOBS=$(gh api "repos/$GH_REPO/actions/runs/${{ github.run_id }}/jobs")
+            WHERE=$(echo "$JOBS" | jq -r '[.jobs[] | select(.conclusion=="failure") | .name + ": " + ([.steps[] | select(.conclusion=="failure") | .name] | join(", "))] | join("; ")')
+            WHY=""
+            for J in $(echo "$JOBS" | jq -r '.jobs[] | select(.conclusion=="failure") | .id'); do
+              WHY="$WHY$(gh api "repos/$GH_REPO/check-runs/$J/annotations" --jq '.[] | select(.annotation_level=="failure") | select(.message | test("exit code") | not) | .message' 2>/dev/null)"
+            done
+            BODY="Metsakartan päivitys epäonnistui: $WHEN (${{ github.event_name }}).
+
+          Kohta: ${WHERE:-ei tiedossa}
+          ${WHY:+Syy: }$WHY
+          Ajon loki: $RUN_URL
+
+          Julkaistuna on edellinen onnistunut versio, joten mikään ei ole rikki – metsätiedot vain eivät päivittyneet.
+          Tämä ilmoitus sulkeutuu itsestään, kun seuraava ajo onnistuu. @vv-tec"
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --body "$BODY"
+            else
+              gh issue create --title "Metsakartan päivitys epäonnistui" --label "$LABEL" --body "$BODY"
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --comment "Päivitys onnistui taas $WHEN ($RUN_URL)."
+          else
+            echo "Ajo onnistui, ei avoimia ilmoituksia."
+          fi
