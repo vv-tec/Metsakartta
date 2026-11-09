@@ -1,6 +1,6 @@
 name: Päivitä metsätilat ja julkaise
 
-# Metsakartta: metsätilojen yöajo. Ohjelmakoodi on Talokartta-repositoriossa (pipeline/metsa.py, metsa_web/);
+# Metsakartta: metsätilojen yöajo. Ohjelmakoodi on Talokartta-repositoriossa (pipeline/metsa/, web/metsa.js);
 # tämä repositorio ajaa sen ja julkaisee karttatiedostot osoitteeseen https://vv-tec.github.io/Metsakartta/.
 # Asetukset (maakunnat, päivitysväli): Talokartan pipeline/config.py, kohta METSAKARTTA.
 on:
@@ -44,6 +44,14 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q tippecanoe
           pip install -r koodi/pipeline/requirements.txt -r koodi/pipeline/requirements-shore.txt -r koodi/pipeline/requirements-metsa.txt   # Shapely; metsäkuva (VMI)
+
+      # Talokartan koodin pikatestit ennen hakuja: rikkinäinen koodimuutos pysäyttää ajon ennen kuin mitään julkaistaan
+      # (julkaistuna pysyy edellinen versio). SELFTEST_STRICT: metsä- ja metsäkuvatestit ajetaan varmasti.
+      - name: Pikatestit
+        working-directory: koodi
+        env:
+          SELFTEST_STRICT: "1"
+        run: python -m pipeline.selftest
 
       # Kuntien tulokset säilytetään ajojen välillä; kunta haetaan uudelleen kuukauden välein (rekisterien kuormitus pieni).
       - name: Palauta välimuisti
@@ -98,9 +106,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       # Oma julkaisuvaihe (9.11.2026; Talokartan .github/actions/julkaise-pages): ei 10 min katkaisua eikä perumista,
-      # oma versiotunnus jokaiselle yritykselle ja automaattinen uusi yritys.
+      # oma versiotunnus jokaiselle yritykselle ja automaattinen uusi yritys. Lukittu versioon julkaisu-v1 (Talokartan
+      # haara), jotta vaiheen keskeneräinen muutos ei riko julkaisua; uusi versio otetaan käyttöön siirtämällä haara.
       - id: deployment
-        uses: vv-tec/Talokartta/.github/actions/julkaise-pages@main
+        uses: vv-tec/Talokartta/.github/actions/julkaise-pages@julkaisu-v1
 
   # Julkaistun sivun tarkistus oikealla selaimella (koodi: Talokartan check/metsa_tarkistus.mjs).
   check:
