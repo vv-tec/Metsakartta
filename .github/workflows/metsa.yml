@@ -43,7 +43,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q tippecanoe
-          pip install -r koodi/pipeline/requirements.txt -r koodi/pipeline/requirements-shore.txt   # Shapely
+          pip install -r koodi/pipeline/requirements.txt -r koodi/pipeline/requirements-shore.txt -r koodi/pipeline/requirements-metsa.txt   # Shapely; metsäkuva (VMI)
 
       # Kuntien tulokset säilytetään ajojen välillä; kunta haetaan uudelleen kuukauden välein (rekisterien kuormitus pieni).
       - name: Palauta välimuisti
