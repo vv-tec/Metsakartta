@@ -87,14 +87,20 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Oma julkaisuvaihe (9.11.2026; Talokartan .github/actions/julkaise-pages): ei 10 min katkaisua eikä perumista,
+      # oma versiotunnus jokaiselle yritykselle ja automaattinen uusi yritys.
       - id: deployment
-        uses: actions/deploy-pages@v5
-        with:
-          timeout: 600000
+        uses: vv-tec/Talokartta/.github/actions/julkaise-pages@main
 
   # Julkaistun sivun tarkistus oikealla selaimella (koodi: Talokartan check/metsa_tarkistus.mjs).
   check:
